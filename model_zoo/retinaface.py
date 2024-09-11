@@ -186,7 +186,8 @@ class RetinaFace:
         # net_outs = self.session.run(self.output_names, {self.input_name : blob})
         self.session.run_with_iobinding(self.io_binding)
 
-        outputs = self.io_binding.get_outputs()
+        # outputs = self.io_binding.get_outputs()
+        outputs = self.io_binding.copy_outputs_to_cpu()
         net_outs = [output.numpy() for output in outputs]
 
         input_height = blob.shape[2]
