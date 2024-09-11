@@ -174,7 +174,7 @@ class RetinaFace:
             # blob
             device_type=input_tensor.device_name(),
             device_id=0,
-            element_type=np.float16,
+            element_type=np.float32,
             shape=input_tensor.shape(),
             buffer_ptr=input_tensor.data_ptr()
         )
