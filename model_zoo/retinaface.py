@@ -179,8 +179,8 @@ class RetinaFace:
             buffer_ptr=input_tensor.data_ptr()
         )
         
-        for output_name in self.output_names:
-            self.io_binding.bind_output(output_name, 'cuda')
+        # for output_name in self.output_names:
+        #     self.io_binding.bind_output(output_name, 'cuda')
         
         
         # net_outs = self.session.run(self.output_names, {self.input_name : blob})
