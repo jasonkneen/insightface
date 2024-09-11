@@ -62,6 +62,7 @@ class FaceAnalysis:
                                              max_num=max_num,
                                              metric='default')
         # print("AFTER TEST INSIGHT FACE CUSTOM VERSION 111111")
+        print("SELF MODELS", self.models)
         if bboxes.shape[0] == 0:
             return []
         ret = []
