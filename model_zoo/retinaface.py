@@ -82,6 +82,8 @@ class RetinaFace:
 
         print("INIITALIZING SESSION")
 
+        print("EXISTING SESSIOn", session)
+
         if self.session is None:
             print("WITH GPU")
             assert self.model_file is not None
@@ -194,20 +196,20 @@ class RetinaFace:
         # outputs = self.io_binding.get_outputs()
         # net_outs = self.io_binding.copy_outputs_to_cpu()
 
-        import os
-        import json
-        import glob
+        # import os
+        # import json
+        # import glob
 
-        # Find the latest onnxruntime profile JSON file
-        latest_profile = max(glob.glob('onnxruntime_profile_*.json'), key=os.path.getctime, default=None)
+        # # Find the latest onnxruntime profile JSON file
+        # latest_profile = max(glob.glob('onnxruntime_profile_*.json'), key=os.path.getctime, default=None)
 
-        if latest_profile:
-            # Read and print the contents of the file
-            with open(latest_profile, 'r') as f:
-                data = json.load(f)
-            print(json.dumps(data, indent=2))
-        else:
-            print("No onnxruntime profile JSON file found.")
+        # if latest_profile:
+        #     # Read and print the contents of the file
+        #     with open(latest_profile, 'r') as f:
+        #         data = json.load(f)
+        #     print(json.dumps(data, indent=2))
+        # else:
+        #     print("No onnxruntime profile JSON file found.")
         # net_outs = [output.numpy() for output in outputs]
 
         input_height = blob.shape[2]
