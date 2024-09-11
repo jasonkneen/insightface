@@ -86,10 +86,8 @@ class RetinaFace:
             print("WITH GPU")
             assert self.model_file is not None
             assert osp.exists(self.model_file)
-            self.session = onnxruntime.InferenceSession(self.model_file, opts,  providers=[
-                ("CUDAExecutionProvider", {"cudnn_conv_algo_search": "DEFAULT"}),
-                "CPUExecutionProvider"
-            ])#providers=["CUDAExecutionProvider", "CPUExecutionProvider"]) #None)
+            self.session = onnxruntime.InferenceSession(self.model_file, opts, 
+                providers=["CUDAExecutionProvider", "CPUExecutionProvider"]) #None)
             # io_binding = session.io_binding()
             # # OnnxRuntime will copy the data over to the CUDA device if 'input' is consumed by nodes on the CUDA device
             # io_binding.bind_cpu_input('input', X)
@@ -183,7 +181,7 @@ class RetinaFace:
         )
         
         for output_name in self.output_names:
-            self.io_binding.bind_output(output_name, 'cuda')
+            self.io_binding.bind_output(output_name, 'cpu')
         
         
         # net_outs = self.session.run(self.output_names, {self.input_name : blob})
