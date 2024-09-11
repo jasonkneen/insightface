@@ -75,10 +75,24 @@ class RetinaFace:
         self.model_file = model_file
         self.session = session
         self.taskname = 'detection'
+
+        opts = onnxruntime.SessionOptions()
+        opts.enable_profiling = True
+
+
+        print("INIITALIZING SESSION")
+
         if self.session is None:
+            print("WITH GPU")
             assert self.model_file is not None
             assert osp.exists(self.model_file)
-            self.session = onnxruntime.InferenceSession(self.model_file, None)
+            self.session = onnxruntime.InferenceSession(self.model_file, opts, providers=["CUDAExecutionProvider", "CPUExecutionProvider"]) #None)
+            # io_binding = session.io_binding()
+            # # OnnxRuntime will copy the data over to the CUDA device if 'input' is consumed by nodes on the CUDA device
+            # io_binding.bind_cpu_input('input', X)
+            # io_binding.bind_output('output')
+            # session.run_with_iobinding(io_binding)
+        self.io_binding = self.session.io_binding()
         self.center_cache = {}
         self.nms_thresh = 0.4
         self.det_thresh = 0.5
@@ -150,7 +164,28 @@ class RetinaFace:
         kpss_list = []
         input_size = tuple(img.shape[0:2][::-1])
         blob = cv2.dnn.blobFromImage(img, 1.0/self.input_std, input_size, (self.input_mean, self.input_mean, self.input_mean), swapRB=True)
-        net_outs = self.session.run(self.output_names, {self.input_name : blob})
+
+
+        print("BINDING ONNXRUNTIME")
+        input_tensor = onnxruntime.OrtValue.ortvalue_from_numpy(blob, 'cuda', 0)
+        self.io_binding.bind_input(
+            name=self.input_name,
+            device_type=input_tensor.device_name(),
+            device_id=0,
+            element_type=np.float32,
+            shape=input_tensor.shape(),
+            buffer_ptr=input_tensor.data_ptr()
+        )
+        
+        for output_name in self.output_names:
+            self.io_binding.bind_output(output_name, 'cuda')
+        
+        
+        # net_outs = self.session.run(self.output_names, {self.input_name : blob})
+        self.session.run_with_iobinding(self.io_binding)
+
+        outputs = self.io_binding.get_outputs()
+        net_outs = [output.numpy() for output in outputs]
 
         input_height = blob.shape[2]
         input_width = blob.shape[3]
