@@ -171,11 +171,11 @@ class RetinaFace:
         print("INPUT TENSOR NAME", input_tensor.device_name())
         self.io_binding.bind_cpu_input( #bind_input(
             name=self.input_name,
-            device_type=input_tensor.device_name(),
-            device_id=0,
-            element_type=np.float16,
-            shape=input_tensor.shape(),
-            buffer_ptr=input_tensor.data_ptr()
+            # device_type=input_tensor.device_name(),
+            # device_id=0,
+            # element_type=np.float16,
+            # shape=input_tensor.shape(),
+            # buffer_ptr=input_tensor.data_ptr()
         )
         
         for output_name in self.output_names:
