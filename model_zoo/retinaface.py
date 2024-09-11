@@ -172,27 +172,27 @@ class RetinaFace:
 
 
         # print("BINDING ONNXRUNTIME", blob, type(blob), blob.device())
-        input_tensor = onnxruntime.OrtValue.ortvalue_from_numpy(blob, 'cpu', 0)
-        print("INPUT TENSOR NAME", input_tensor.device_name())
-        self.io_binding.bind_input( #bind_input(
-            self.input_name,
-            # blob
-            device_type=input_tensor.device_name(),
-            device_id=0,
-            element_type=np.float32,
-            shape=input_tensor.shape(),
-            buffer_ptr=input_tensor.data_ptr()
-        )
+        # input_tensor = onnxruntime.OrtValue.ortvalue_from_numpy(blob, 'cpu', 0)
+        # print("INPUT TENSOR NAME", input_tensor.device_name())
+        # self.io_binding.bind_input( #bind_input(
+        #     self.input_name,
+        #     # blob
+        #     device_type=input_tensor.device_name(),
+        #     device_id=0,
+        #     element_type=np.float32,
+        #     shape=input_tensor.shape(),
+        #     buffer_ptr=input_tensor.data_ptr()
+        # )
         
-        for output_name in self.output_names:
-            self.io_binding.bind_output(output_name, 'cpu')
+        # for output_name in self.output_names:
+        #     self.io_binding.bind_output(output_name, 'cpu')
         
         
-        # net_outs = self.session.run(self.output_names, {self.input_name : blob})
-        self.session.run_with_iobinding(self.io_binding)
+        net_outs = self.session.run(self.output_names, {self.input_name : blob})
+        # self.session.run_with_iobinding(self.io_binding)
 
         # outputs = self.io_binding.get_outputs()
-        net_outs = self.io_binding.copy_outputs_to_cpu()
+        # net_outs = self.io_binding.copy_outputs_to_cpu()
 
         import os
         import json
