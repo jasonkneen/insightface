@@ -73,7 +73,7 @@ class RetinaFace:
     def __init__(self, model_file=None, session=None):
         import onnxruntime
         self.model_file = model_file
-        self.session = session
+        self.session = None #session
         self.taskname = 'detection'
 
         opts = onnxruntime.SessionOptions()
@@ -87,7 +87,11 @@ class RetinaFace:
             assert self.model_file is not None
             assert osp.exists(self.model_file)
             self.session = onnxruntime.InferenceSession(self.model_file, opts, 
-                providers=["CUDAExecutionProvider", "CPUExecutionProvider"]) #None)
+                                                        providers=[
+                ("CUDAExecutionProvider", {"cudnn_conv_algo_search": "DEFAULT"}),
+                "CPUExecutionProvider"
+            ])
+                # providers=["CUDAExecutionProvider", "CPUExecutionProvider"]) #None)
             # io_binding = session.io_binding()
             # # OnnxRuntime will copy the data over to the CUDA device if 'input' is consumed by nodes on the CUDA device
             # io_binding.bind_cpu_input('input', X)
