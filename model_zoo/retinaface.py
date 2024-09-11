@@ -166,13 +166,14 @@ class RetinaFace:
         blob = cv2.dnn.blobFromImage(img, 1.0/self.input_std, input_size, (self.input_mean, self.input_mean, self.input_mean), swapRB=True)
 
 
-        print("BINDING ONNXRUNTIME")
+        # print("BINDING ONNXRUNTIME", blob, type(blob), blob.device())
         input_tensor = onnxruntime.OrtValue.ortvalue_from_numpy(blob, 'cuda', 0)
-        self.io_binding.bind_input(
+        print("INPUT TENSOR NAME", input_tensor.device_name())
+        self.io_binding.bind_cpu_input( #bind_input(
             name=self.input_name,
             device_type=input_tensor.device_name(),
             device_id=0,
-            element_type=np.float32,
+            element_type=np.float16,
             shape=input_tensor.shape(),
             buffer_ptr=input_tensor.data_ptr()
         )

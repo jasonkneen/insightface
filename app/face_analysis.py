@@ -61,6 +61,7 @@ class FaceAnalysis:
         bboxes, kpss = self.det_model.detect(img,
                                              max_num=max_num,
                                              metric='default')
+        print("AFTER TEST INSIGHT FACE CUSTOM VERSION 111111")
         if bboxes.shape[0] == 0:
             return []
         ret = []
