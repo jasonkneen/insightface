@@ -80,12 +80,12 @@ class RetinaFace:
         opts.enable_profiling = True
 
 
-        print("INIITALIZING SESSION")
+        # print("INIITALIZING SESSION")
 
-        print("EXISTING SESSIOn", session)
+        # print("EXISTING SESSIOn", session)
 
         if self.session is None:
-            print("WITH GPU")
+            # print("WITH GPU")
             assert self.model_file is not None
             assert osp.exists(self.model_file)
             self.session = onnxruntime.InferenceSession(self.model_file, #opts, 
@@ -150,7 +150,7 @@ class RetinaFace:
             self.use_kps = True
 
     def prepare(self, ctx_id, **kwargs):
-        print("HERERERERE TEST INSIGHT FACE CUSTOM VERSION RETINNAAA 111111")
+        # print("HERERERERE TEST INSIGHT FACE CUSTOM VERSION RETINNAAA 111111")
         if ctx_id<0:
             self.session.set_providers(['CPUExecutionProvider'])
         nms_thresh = kwargs.get('nms_thresh', None)

@@ -20,7 +20,7 @@ class ArcFaceONNX:
     def __init__(self, model_file=None, session=None):
         assert model_file is not None
         self.model_file = model_file
-        self.session = session
+        self.session = None #session
         self.taskname = 'recognition'
         find_sub = False
         find_mul = False
@@ -43,7 +43,12 @@ class ArcFaceONNX:
         self.input_std = input_std
         #print('input mean and std:', self.input_mean, self.input_std)
         if self.session is None:
-            self.session = onnxruntime.InferenceSession(self.model_file, None)
+            # self.session = onnxruntime.InferenceSession(self.model_file, None)
+            self.session = onnxruntime.InferenceSession(self.model_file, 
+                                                        providers=[
+                ("CUDAExecutionProvider", {"cudnn_conv_algo_search": "DEFAULT"}),
+                "CPUExecutionProvider"
+            ])
         input_cfg = self.session.get_inputs()[0]
         input_shape = input_cfg.shape
         input_name = input_cfg.name

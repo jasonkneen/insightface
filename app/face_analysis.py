@@ -45,7 +45,7 @@ class FaceAnalysis:
 
 
     def prepare(self, ctx_id, det_thresh=0.5, det_size=(640, 640)):
-        print("HERERERERE TEST INSIGHT FACE CUSTOM VERSION 222222")
+        # print("HERERERERE TEST INSIGHT FACE CUSTOM VERSION 222222")
         self.det_thresh = det_thresh
         assert det_size is not None
         print('set det-size:', det_size)
@@ -57,11 +57,11 @@ class FaceAnalysis:
                 model.prepare(ctx_id)
 
     def get(self, img, max_num=0):
-        print("HERERERERE TEST INSIGHT FACE CUSTOM VERSION 11111")
+        # print("HERERERERE TEST INSIGHT FACE CUSTOM VERSION 11111")
         bboxes, kpss = self.det_model.detect(img,
                                              max_num=max_num,
                                              metric='default')
-        print("AFTER TEST INSIGHT FACE CUSTOM VERSION 111111")
+        # print("AFTER TEST INSIGHT FACE CUSTOM VERSION 111111")
         if bboxes.shape[0] == 0:
             return []
         ret = []

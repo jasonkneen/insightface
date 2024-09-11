@@ -12,7 +12,7 @@ from ..utils import face_align
 class INSwapper():
     def __init__(self, model_file=None, session=None):
         self.model_file = model_file
-        self.session = session
+        self.session = None #session
         model = onnx.load(self.model_file)
         graph = model.graph
         self.emap = numpy_helper.to_array(graph.initializer[-1])
@@ -20,7 +20,12 @@ class INSwapper():
         self.input_std = 255.0
         #print('input mean and std:', model_file, self.input_mean, self.input_std)
         if self.session is None:
-            self.session = onnxruntime.InferenceSession(self.model_file, None)
+            # self.session = onnxruntime.InferenceSession(self.model_file, None)
+            self.session = onnxruntime.InferenceSession(self.model_file, 
+                                                        providers=[
+                ("CUDAExecutionProvider", {"cudnn_conv_algo_search": "DEFAULT"}),
+                "CPUExecutionProvider"
+            ])
         inputs = self.session.get_inputs()
         self.input_names = []
         for inp in inputs:
