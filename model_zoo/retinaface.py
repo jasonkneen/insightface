@@ -88,9 +88,10 @@ class RetinaFace:
             print("WITH GPU")
             assert self.model_file is not None
             assert osp.exists(self.model_file)
-            self.session = onnxruntime.InferenceSession(self.model_file, opts, 
+            self.session = onnxruntime.InferenceSession(self.model_file, #opts, 
                                                         providers=[
-                ("CUDAExecutionProvider", {"cudnn_conv_algo_search": "DEFAULT"}),
+                # ("CUDAExecutionProvider", {"cudnn_conv_algo_search": "DEFAULT"}),
+                "CUDAExecutionProvider",
                 "CPUExecutionProvider"
             ])
                 # providers=["CUDAExecutionProvider", "CPUExecutionProvider"]) #None)
