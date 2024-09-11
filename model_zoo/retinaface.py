@@ -167,11 +167,11 @@ class RetinaFace:
 
 
         # print("BINDING ONNXRUNTIME", blob, type(blob), blob.device())
-        input_tensor = onnxruntime.OrtValue.ortvalue_from_numpy(blob, 'cuda', 0)
-        print("INPUT TENSOR NAME", input_tensor.device_name())
+        # input_tensor = onnxruntime.OrtValue.ortvalue_from_numpy(blob, 'cuda', 0)
+        # print("INPUT TENSOR NAME", input_tensor.device_name())
         self.io_binding.bind_cpu_input( #bind_input(
             self.input_name,
-            input_tensor
+            blob
             # device_type=input_tensor.device_name(),
             # device_id=0,
             # element_type=np.float16,
