@@ -109,10 +109,14 @@ class INSwapper():
     #         return fake_merged
 
     def get(self, img, target_face, source_face, paste_back=True):
-        # Get aligned face
+        # Get aligned face at higher resolution
         aimg, M = face_align.norm_crop2(img, target_face.kps, self.input_size[0])
         
-        # Convert to blob with minimum preprocessing to maintain quality
+        # Create high-res version for detail preservation
+        h, w = aimg.shape[:2]
+        high_res_aimg = cv2.resize(aimg, (w*2, h*2), interpolation=cv2.INTER_LANCZOS4)
+        
+        # Process normal resolution for model input
         blob = cv2.dnn.blobFromImage(aimg, 1.0 / self.input_std, self.input_size,
                                       (self.input_mean, self.input_mean, self.input_mean), swapRB=True)
         
@@ -124,9 +128,18 @@ class INSwapper():
         # Run inference
         pred = self.session.run(self.output_names, {self.input_names[0]: blob, self.input_names[1]: latent})[0]
         
-        # Convert prediction back to image
+        # Convert prediction back to image with higher resolution
         img_fake = pred.transpose((0,2,3,1))[0]
         bgr_fake = np.clip(255 * img_fake, 0, 255).astype(np.uint8)[:,:,::-1]
+        
+        # Upscale the swapped face
+        bgr_fake = cv2.resize(bgr_fake, (w*2, h*2), interpolation=cv2.INTER_LANCZOS4)
+        
+        # Apply detail enhancement
+        sharpening_kernel = np.array([[-1,-1,-1], 
+                                    [-1, 9,-1],
+                                    [-1,-1,-1]]) / 9.0
+        bgr_fake = cv2.filter2D(bgr_fake, -1, sharpening_kernel)
         
         if not paste_back:
             return bgr_fake, M
@@ -134,70 +147,81 @@ class INSwapper():
         # Enhanced paste-back process
         target_img = img
         
-        # Calculate difference mask with higher sensitivity
-        fake_diff = bgr_fake.astype(np.float32) - aimg.astype(np.float32)
+        # Calculate difference mask with high detail preservation
+        fake_diff = cv2.resize(bgr_fake, (w,h)) - aimg
         fake_diff = np.abs(fake_diff).mean(axis=2)
         
-        # Preserve more edge detail by reducing border clearing
+        # Minimal border clearing
         fake_diff[:1,:] = 0
         fake_diff[-1:,:] = 0
         fake_diff[:,:1] = 0
         fake_diff[:,-1:] = 0
         
-        # Get inverse transform
+        # Get inverse transform for high resolution
         IM = cv2.invertAffineTransform(M)
         
+        # Scale the inverse transform for higher resolution
+        IM_scale = IM * np.array([[1, 1, 2], [1, 1, 2]])
+        
         # Create base mask
-        img_white = np.full((aimg.shape[0], aimg.shape[1]), 255, dtype=np.float32)
+        img_white = np.full((h*2, w*2), 255, dtype=np.float32)
         
-        # Warp results back to original image space
-        bgr_fake = cv2.warpAffine(bgr_fake, IM, (target_img.shape[1], target_img.shape[0]), borderValue=0.0, 
-                                 flags=cv2.INTER_CUBIC)  # Use cubic interpolation for higher quality
-        img_white = cv2.warpAffine(img_white, IM, (target_img.shape[1], target_img.shape[0]), borderValue=0.0)
-        fake_diff = cv2.warpAffine(fake_diff, IM, (target_img.shape[1], target_img.shape[0]), borderValue=0.0)
+        # Warp results back to original image space with high quality interpolation
+        target_size = (target_img.shape[1]*2, target_img.shape[0]*2)
+        bgr_fake = cv2.warpAffine(bgr_fake, IM_scale, target_size, borderValue=0.0, 
+                                 flags=cv2.INTER_LANCZOS4)
         
-        # Enhance mask edges
-        img_white[img_white>10] = 255  # More sensitive threshold
+        # Scale up target image for high-res processing
+        target_img_highres = cv2.resize(target_img, target_size, interpolation=cv2.INTER_LANCZOS4)
         
-        # Adjust difference threshold for better edge detection
-        fthresh = 5  # Lower threshold to catch more subtle differences
-        fake_diff[fake_diff<fthresh] = 0
-        fake_diff[fake_diff>=fthresh] = 255
+        # Create and warp masks at high resolution
+        img_white = cv2.warpAffine(img_white, IM_scale, target_size, borderValue=0.0)
+        fake_diff_highres = cv2.resize(fake_diff, (w*2, h*2), interpolation=cv2.INTER_LINEAR)
+        fake_diff_highres = cv2.warpAffine(fake_diff_highres, IM_scale, target_size, borderValue=0.0)
         
-        # Create face mask
-        img_mask = img_white
-        mask_h_inds, mask_w_inds = np.where(img_mask==255)
+        # Enhanced mask processing
+        img_white[img_white>10] = 255
+        fthresh = 10
+        fake_diff_highres[fake_diff_highres<fthresh] = 0
+        fake_diff_highres[fake_diff_highres>=fthresh] = 255
+        
+        # Create refined blending mask
+        mask_h_inds, mask_w_inds = np.where(img_white==255)
+        if len(mask_h_inds) == 0 or len(mask_w_inds) == 0:
+            return cv2.resize(target_img_highres, (target_img.shape[1], target_img.shape[0]), 
+                             interpolation=cv2.INTER_LANCZOS4)
+        
         mask_h = np.max(mask_h_inds) - np.min(mask_h_inds)
         mask_w = np.max(mask_w_inds) - np.min(mask_w_inds)
         mask_size = int(np.sqrt(mask_h*mask_w))
         
-        # Reduce erosion for sharper edges
-        k = max(mask_size//15, 7)  # Adjusted for better edge preservation
+        # Refined blending parameters
+        k = max(mask_size//20, 5)  # Smaller kernel for sharper edges
         kernel = np.ones((k,k), np.uint8)
-        img_mask = cv2.erode(img_mask, kernel, iterations=1)
+        img_mask = cv2.erode(img_white, kernel, iterations=1)
         
-        # Refined detail preservation
-        kernel = np.ones((2,2), np.uint8)
-        fake_diff = cv2.dilate(fake_diff, kernel, iterations=1)
+        # Detail-preserving edge refinement
+        kernel = np.ones((3,3), np.uint8)
+        fake_diff_highres = cv2.dilate(fake_diff_highres, kernel, iterations=1)
         
-        # Adaptive blending based on face size
-        k = max(mask_size//25, 3)  # Reduced blur for sharper results
+        # Gaussian blur with smaller kernels for sharper results
+        k = max(mask_size//30, 3)
         kernel_size = (k, k)
         blur_size = tuple(2*i+1 for i in kernel_size)
-        
-        # Apply minimal blur to maintain sharpness while preventing artifacts
         img_mask = cv2.GaussianBlur(img_mask, blur_size, 0)
-        fake_diff = cv2.GaussianBlur(fake_diff, (3, 3), 0)  # Minimal blur for difference mask
+        fake_diff_highres = cv2.GaussianBlur(fake_diff_highres, (3, 3), 0)
         
         # Normalize masks
         img_mask = img_mask.astype(np.float32) / 255
-        fake_diff = fake_diff.astype(np.float32) / 255
+        fake_diff_highres = fake_diff_highres.astype(np.float32) / 255
         
-        # Prepare final mask
+        # Final high-res blending
         img_mask = np.reshape(img_mask, [img_mask.shape[0], img_mask.shape[1], 1])
+        fake_merged = img_mask * bgr_fake + (1-img_mask) * target_img_highres
         
-        # Final blend
-        fake_merged = img_mask * bgr_fake + (1-img_mask) * target_img.astype(np.float32)
-        fake_merged = np.clip(fake_merged, 0, 255).astype(np.uint8)
+        # Final downscale to original resolution with high-quality interpolation
+        fake_merged = cv2.resize(fake_merged, (target_img.shape[1], target_img.shape[0]), 
+                               interpolation=cv2.INTER_LANCZOS4)
         
+        return np.clip(fake_merged, 0, 255).astype(np.uint8)
         return fake_merged
