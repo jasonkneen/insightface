@@ -163,8 +163,8 @@ class INSwapper():
         img_mask = img_mask.astype(np.float32) / 255.0
         
         # Apply additional edge refinement
-        edge_kernel = np.ones((3, 3), np.float32) / 9
-        img_mask = cv2.filter2D(img_mask, -1, edge_kernel)
+        # edge_kernel = np.ones((3, 3), np.float32) / 9
+        # img_mask = cv2.filter2D(img_mask, -1, edge_kernel)
         
         # Reshape mask for blending
         img_mask = np.clip(img_mask, 0, 1)
