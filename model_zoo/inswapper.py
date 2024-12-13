@@ -110,14 +110,23 @@ class INSwapper():
 
     def get(self, img, target_face, source_face, paste_back=True):
         """
-        Enhanced get() function with improved resolution and sharp edge blending
+        High resolution face swapping with enhanced edge definition and reduced pixelation
         """
-        # Use higher resolution face alignment 
-        aimg, M = face_align.norm_crop2(img, target_face.kps, self.input_size[0])
+        # Increase resolution for face alignment
+        aligned_size = (self.input_size[0] * 2, self.input_size[1] * 2)  # Double resolution
+        aimg, M = face_align.norm_crop2(img, target_face.kps, aligned_size[0])
         
-        # Minimize preprocessing to preserve quality
-        blob = cv2.dnn.blobFromImage(aimg, 1.0 / self.input_std, self.input_size,
-                                      (self.input_mean, self.input_mean, self.input_mean), swapRB=True)
+        # Scale back down for model input while preserving quality
+        aimg_input = cv2.resize(aimg, self.input_size, interpolation=cv2.INTER_LANCZOS4)
+        
+        # High quality preprocessing
+        blob = cv2.dnn.blobFromImage(
+            aimg_input, 
+            1.0 / self.input_std,
+            self.input_size,
+            (self.input_mean, self.input_mean, self.input_mean), 
+            swapRB=True
+        )
         
         # Process latent vector
         latent = source_face.normed_embedding.reshape((1,-1))
@@ -127,70 +136,95 @@ class INSwapper():
         # Run inference
         pred = self.session.run(self.output_names, {self.input_names[0]: blob, self.input_names[1]: latent})[0]
         
-        # Convert prediction with minimal quality loss
+        # High quality prediction processing
         img_fake = pred.transpose((0,2,3,1))[0]
         bgr_fake = np.clip(255 * img_fake, 0, 255).astype(np.uint8)[:,:,::-1]
         
+        # Upscale the swapped face
+        bgr_fake = cv2.resize(bgr_fake, aligned_size, interpolation=cv2.INTER_LANCZOS4)
+        
         if not paste_back:
             return bgr_fake, M
-    
-        # Enhanced paste-back process
+            
         target_img = img
         
-        # Create primary face mask using facial landmarks
-        primary_mask = np.zeros((aimg.shape[0], aimg.shape[1]), dtype=np.float32)
-        face_points = target_face.landmark_2d_106[:].astype(np.int32)
-        hull = cv2.convexHull(face_points)
-        cv2.fillConvexPoly(primary_mask, hull, 1.0)
+        # Enhanced edge preservation
+        fake_diff = cv2.subtract(bgr_fake.astype(np.float32), aimg.astype(np.float32))
+        fake_diff = np.abs(fake_diff).mean(axis=2)
         
-        # Create refined edge mask
-        edge_mask = np.zeros_like(primary_mask)
-        hull_edge = cv2.polylines(edge_mask.copy(), [hull], True, 1, 2)
-        edge_mask = cv2.GaussianBlur(hull_edge, (3, 3), 0)
+        # Sharpen the swapped face
+        kernel = np.array([[-1,-1,-1],
+                          [-1, 9,-1],
+                          [-1,-1,-1]]) / 5.0
+        bgr_fake = cv2.filter2D(bgr_fake, -1, kernel)
         
         # Get inverse transform with subpixel accuracy
         IM = cv2.invertAffineTransform(M)
         
         # High quality warping
-        bgr_fake = cv2.warpAffine(bgr_fake, IM, (target_img.shape[1], target_img.shape[0]), 
-                                 borderValue=0.0, flags=cv2.INTER_CUBIC)
-        primary_mask = cv2.warpAffine(primary_mask, IM, (target_img.shape[1], target_img.shape[0]), 
-                                     borderValue=0.0, flags=cv2.INTER_LINEAR)
-        edge_mask = cv2.warpAffine(edge_mask, IM, (target_img.shape[1], target_img.shape[0]), 
-                                  borderValue=0.0, flags=cv2.INTER_LINEAR)
+        bgr_fake = cv2.warpAffine(
+            bgr_fake, 
+            IM, 
+            (target_img.shape[1], target_img.shape[0]),
+            borderValue=0.0,
+            flags=cv2.INTER_CUBIC + cv2.WARP_INVERSE_MAP
+        )
         
-        # Apply localized sharpening to swapped face
-        kernel = np.array([[-1,-1,-1],
-                          [-1, 9,-1],
-                          [-1,-1,-1]]) / 5.0
-        bgr_fake_sharp = cv2.filter2D(bgr_fake, -1, kernel)
+        # Create high resolution mask
+        img_mask = np.full((aimg.shape[0], aimg.shape[1]), 255, dtype=np.float32)
+        img_mask = cv2.warpAffine(
+            img_mask,
+            IM,
+            (target_img.shape[1], target_img.shape[0]),
+            borderValue=0.0,
+            flags=cv2.INTER_LINEAR
+        )
         
-        # Blend sharp and original versions
-        edge_mask_3d = np.repeat(edge_mask[:, :, np.newaxis], 3, axis=2)
-        bgr_fake = bgr_fake_sharp * edge_mask_3d + bgr_fake * (1 - edge_mask_3d)
+        # Enhanced face mask creation
+        mask_h_inds, mask_w_inds = np.where(img_mask > 0)
+        if len(mask_h_inds) == 0:
+            return target_img
+            
+        mask_h = np.max(mask_h_inds) - np.min(mask_h_inds)
+        mask_w = np.max(mask_w_inds) - np.min(mask_w_inds)
+        mask_size = int(np.sqrt(mask_h * mask_w))
         
-        # Color correction on face region
-        mask_region = primary_mask > 0.5
-        if np.any(mask_region):
-            target_mean = np.mean(target_img[mask_region], axis=0)
-            swap_mean = np.mean(bgr_fake[mask_region], axis=0)
-            correction = target_mean / (swap_mean + 1e-6)
-            correction = np.clip(correction, 0.7, 1.3)
-            bgr_fake[mask_region] = np.clip(bgr_fake[mask_region] * correction, 0, 255)
+        # Create refined edge mask
+        k = max(mask_size//20, 5)  # Smaller kernel for sharper edges
+        kernel = np.ones((k,k), np.uint8)
+        img_mask = cv2.erode(img_mask, kernel, iterations=1)
         
-        # Create final composite mask
-        composite_mask = primary_mask.copy()
-        face_radius = int(np.sqrt(hull.shape[0] * hull.shape[0]) * 0.4)
-        composite_mask = cv2.GaussianBlur(composite_mask, (face_radius|1, face_radius|1), 0)
-        composite_mask = np.repeat(composite_mask[:, :, np.newaxis], 3, axis=2)
+        # Progressive blending for edge refinement
+        blur_radius = max(mask_size//30, 3)  # Smaller blur for sharper edges
+        img_mask = cv2.GaussianBlur(img_mask, (blur_radius*2+1, blur_radius*2+1), 0)
+        img_mask = img_mask.astype(np.float32) / 255.0
         
-        # High quality blend with gamma correction
-        gamma = 0.9
-        bgr_fake = ((bgr_fake.astype(np.float32) / 255) ** gamma) * 255
-        target_img = ((target_img.astype(np.float32) / 255) ** gamma) * 255
+        # Add gradient mask for enhanced edge blending
+        y, x = np.ogrid[:img_mask.shape[0], :img_mask.shape[1]]
+        center_y = (np.max(mask_h_inds) + np.min(mask_h_inds)) / 2
+        center_x = (np.max(mask_w_inds) + np.min(mask_w_inds)) / 2
+        gradient_mask = np.exp(-((x - center_x)**2 + (y - center_y)**2) / (2 * (mask_size/3)**2))
+        img_mask = img_mask * gradient_mask
         
-        # Final composite with gamma correction
-        fake_merged = composite_mask * bgr_fake + (1 - composite_mask) * target_img
-        fake_merged = np.clip((fake_merged / 255) ** (1/gamma), 0, 1) * 255
+        # Prepare for blending
+        img_mask = np.expand_dims(img_mask, axis=2)
         
-        return fake_merged.astype(np.uint8)
+        # Color correction with local area matching
+        target_face_area = target_img[img_mask[:,:,0] > 0.5]
+        if len(target_face_area) > 0:
+            # Calculate local color statistics
+            target_mean = np.mean(target_face_area, axis=0)
+            target_std = np.std(target_face_area, axis=0)
+            swapped_face_area = bgr_fake[img_mask[:,:,0] > 0.5]
+            swapped_mean = np.mean(swapped_face_area, axis=0)
+            swapped_std = np.std(swapped_face_area, axis=0)
+            
+            # Apply color correction
+            correction = (target_std / (swapped_std + 1e-6)) * (bgr_fake - swapped_mean) + target_mean
+            bgr_fake = np.clip(correction, 0, 255).astype(np.uint8)
+        
+        # Final high quality blend with edge refinement
+        fake_merged = img_mask * bgr_fake + (1 - img_mask) * target_img.astype(np.float32)
+        fake_merged = np.clip(fake_merged, 0, 255).astype(np.uint8)
+        
+        return fake_merged
