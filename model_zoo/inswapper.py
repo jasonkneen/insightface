@@ -124,56 +124,66 @@ class INSwapper():
         if not paste_back:
             return bgr_fake, M
         else:
-            # Warp the generated face back to the original image coordinate space
             target_img = img
+            # Compute difference map to identify blending areas
             fake_diff = bgr_fake.astype(np.float32) - aimg.astype(np.float32)
             fake_diff = np.abs(fake_diff).mean(axis=2)
     
-            # Zero out border regions to avoid edge artifacts
+            # Avoid influence of image borders
             fake_diff[:2,:] = 0
             fake_diff[-2:,:] = 0
             fake_diff[:,:2] = 0
             fake_diff[:,-2:] = 0
     
-            # Invert the affine transform
             IM = cv2.invertAffineTransform(M)
-    
-            # Create a white mask aligned with the aligned face
             img_white = np.full((aimg.shape[0], aimg.shape[1]), 255, dtype=np.float32)
     
-            # Warp the fake face, mask, and difference back to the original image
+            # Warp everything back to the target image space
             bgr_fake = cv2.warpAffine(bgr_fake, IM, (target_img.shape[1], target_img.shape[0]), borderValue=0.0)
             img_white = cv2.warpAffine(img_white, IM, (target_img.shape[1], target_img.shape[0]), borderValue=0.0)
             fake_diff = cv2.warpAffine(fake_diff, IM, (target_img.shape[1], target_img.shape[0]), borderValue=0.0)
     
-            # Thresholding to create a sharper mask
-            # Areas that were white (>20) remain as mask
+            # Threshold the white mask
             img_white[img_white > 20] = 255
     
-            # Threshold the difference map to identify edges
+            # Threshold the difference map to identify strong edges
             fthresh = 10
             fake_diff[fake_diff < fthresh] = 0
             fake_diff[fake_diff >= fthresh] = 255
     
-            # Convert masks to single-channel for blending
-            img_mask = img_white
-            img_mask = np.clip(img_mask, 0, 255).astype(np.uint8)
-            fake_diff = np.clip(fake_diff, 0, 255).astype(np.uint8)
+            # Compute mask bounding box size to determine a minimal blur
+            mask_h_inds, mask_w_inds = np.where(img_white == 255)
+            if len(mask_h_inds) == 0 or len(mask_w_inds) == 0:
+                # If something went wrong and we have no mask, just return
+                return bgr_fake
+            mask_h = np.max(mask_h_inds) - np.min(mask_h_inds)
+            mask_w = np.max(mask_w_inds) - np.min(mask_w_inds)
+            mask_size = int(np.sqrt(mask_h * mask_w))
     
-            # Apply a small Gaussian blur to gently feather edges without making them too soft
-            # This avoids heavy pixelation and maintains a relatively sharp transition.
-            img_mask = cv2.GaussianBlur(img_mask, (3, 3), 0)
-            fake_diff = cv2.GaussianBlur(fake_diff, (3, 3), 0)
+            # Use a very light blur to soften transitions slightly without losing sharpness
+            # Smaller kernels help retain sharpness
+            k = max(mask_size // 50, 3)  # Smaller blur kernel
+            kernel_size = (k, k)
+            blur_size = tuple(2*i+1 for i in kernel_size)
+            img_mask = cv2.GaussianBlur(img_white, blur_size, 0)
+            fake_diff = cv2.GaussianBlur(fake_diff, blur_size, 0)
     
-            # Normalize masks to [0,1]
-            img_mask = img_mask.astype(np.float32) / 255.0
-            fake_diff = fake_diff.astype(np.float32) / 255.0
+            # Normalize to [0,1]
+            img_mask /= 255.0
+            fake_diff /= 255.0
     
-            # Combine mask with the generated image and the original image
-            # Since we want a sharper mask, we rely on minimal smoothing above.
-            img_mask = np.reshape(img_mask, [img_mask.shape[0], img_mask.shape[1], 1])
-            fake_merged = img_mask * bgr_fake + (1 - img_mask) * target_img.astype(np.float32)
+            # Combine masks - here we rely mostly on img_mask for spatial extent
+            # and use fake_diff as a subtle edge enhancement if needed
+            # If you prefer a sharper edge, reduce combination with fake_diff
+            # For a sharper mask, let's rely more on img_mask:
+            combined_mask = img_mask  # If you want to mix in edge info: (img_mask * 0.8 + fake_diff * 0.2)
+            combined_mask = np.clip(combined_mask, 0, 1)
+            combined_mask = np.reshape(combined_mask, [combined_mask.shape[0], combined_mask.shape[1], 1])
+    
+            # Blend the images using the combined mask
+            fake_merged = combined_mask * bgr_fake + (1 - combined_mask) * target_img.astype(np.float32)
             fake_merged = np.clip(fake_merged, 0, 255).astype(np.uint8)
     
             return fake_merged
+
 
