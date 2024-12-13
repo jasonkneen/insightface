@@ -109,7 +109,6 @@ class INSwapper():
     #         return fake_merged
 
     def get(self, img, target_face, source_face, paste_back=True):
-        # Initial face alignment at higher resolution
         aimg, M = face_align.norm_crop2(img, target_face.kps, self.input_size[0])
         blob = cv2.dnn.blobFromImage(aimg, 1.0 / self.input_std, self.input_size,
                                     (self.input_mean, self.input_mean, self.input_mean), swapRB=True)
@@ -124,65 +123,61 @@ class INSwapper():
             return bgr_fake, M
         
         target_img = img
-        
-        # Enhanced difference calculation with better precision
         fake_diff = bgr_fake.astype(np.float32) - aimg.astype(np.float32)
         fake_diff = np.abs(fake_diff).mean(axis=2)
         
-        # Create a high-resolution mask
+        # Keep original border handling
+        fake_diff[:2,:] = 0
+        fake_diff[-2:,:] = 0
+        fake_diff[:,:2] = 0
+        fake_diff[:,-2:] = 0
+        
         IM = cv2.invertAffineTransform(M)
-        img_white = np.full((aimg.shape[0], aimg.shape[1]), 255, dtype=np.float32)
+        img_white = np.full((aimg.shape[0],aimg.shape[1]), 255, dtype=np.float32)
         
-        # Apply high-quality warping
+        # Use INTER_LINEAR for warping to maintain quality without artifacts
         bgr_fake = cv2.warpAffine(bgr_fake, IM, (target_img.shape[1], target_img.shape[0]), 
-                                 flags=cv2.INTER_CUBIC, borderValue=0.0)
+                                 flags=cv2.INTER_LINEAR, borderValue=0.0)
         img_white = cv2.warpAffine(img_white, IM, (target_img.shape[1], target_img.shape[0]), 
-                                  flags=cv2.INTER_CUBIC, borderValue=0.0)
+                                  flags=cv2.INTER_LINEAR, borderValue=0.0)
         fake_diff = cv2.warpAffine(fake_diff, IM, (target_img.shape[1], target_img.shape[0]), 
-                                  flags=cv2.INTER_CUBIC, borderValue=0.0)
+                                  flags=cv2.INTER_LINEAR, borderValue=0.0)
         
-        # Refined mask processing
-        img_white[img_white > 20] = 255
+        img_white[img_white>20] = 255
         
-        # Calculate mask size for adaptive processing
-        mask_h_inds, mask_w_inds = np.where(img_white == 255)
+        # Slightly more aggressive threshold for cleaner edges
+        fthresh = 12
+        fake_diff[fake_diff<fthresh] = 0
+        fake_diff[fake_diff>=fthresh] = 255
+        
+        img_mask = img_white
+        mask_h_inds, mask_w_inds = np.where(img_mask==255)
         mask_h = np.max(mask_h_inds) - np.min(mask_h_inds)
         mask_w = np.max(mask_w_inds) - np.min(mask_w_inds)
-        mask_size = int(np.sqrt(mask_h * mask_w))
+        mask_size = int(np.sqrt(mask_h*mask_w))
         
-        # Create feathered mask edge
-        k_feather = max(mask_size // 50, 5)  # Adaptive feathering size
-        kernel_feather = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k_feather, k_feather))
+        # Keep erosion but with slightly smaller kernel
+        k = max(mask_size//12, 8)
+        kernel = np.ones((k,k),np.uint8)
+        img_mask = cv2.erode(img_mask, kernel, iterations=1)
         
-        # Progressive mask refinement
-        img_mask = img_white.copy()
-        img_mask = cv2.erode(img_mask, kernel_feather, iterations=1)
+        # Two-pass blur for smoother transition
+        k = max(mask_size//30, 5)
+        kernel_size = (k, k)
+        blur_size = tuple(2*i+1 for i in kernel_size)
+        img_mask = cv2.GaussianBlur(img_mask, blur_size, 0)
         
-        # Multi-step blurring for smoother transition
-        for radius in [k_feather, k_feather//2]:
-            img_mask = cv2.GaussianBlur(img_mask, (radius*2+1, radius*2+1), 0)
+        # Second pass with smaller kernel
+        k = 3
+        kernel_size = (k, k)
+        blur_size = tuple(2*i+1 for i in kernel_size)
+        img_mask = cv2.GaussianBlur(img_mask, blur_size, 0)
         
-        # Normalize mask
-        img_mask = img_mask / 255.0
+        img_mask /= 255
+        fake_diff /= 255
         
-        # Apply alpha feathering
-        feather_radius = max(mask_size // 100, 2)
-        kernel_alpha = np.ones((feather_radius*2+1, feather_radius*2+1), np.float32)
-        kernel_alpha = cv2.GaussianBlur(kernel_alpha, (feather_radius*2+1, feather_radius*2+1), feather_radius)
-        kernel_alpha = kernel_alpha / np.max(kernel_alpha)
-        
-        # Final mask preparation
-        img_mask = cv2.filter2D(img_mask, -1, kernel_alpha)
-        img_mask = np.clip(img_mask, 0, 1)
-        img_mask = np.reshape(img_mask, [img_mask.shape[0], img_mask.shape[1], 1])
-        
-        # Smooth blending
+        img_mask = np.reshape(img_mask, [img_mask.shape[0],img_mask.shape[1],1])
         fake_merged = img_mask * bgr_fake + (1-img_mask) * target_img.astype(np.float32)
+        fake_merged = fake_merged.astype(np.uint8)
         
-        # Optional final pass of subtle sharpening
-        sharpen_kernel = np.array([[-0.5,-0.5,-0.5], 
-                                 [-0.5, 5,-0.5],
-                                 [-0.5,-0.5,-0.5]]) / 1.0
-        fake_merged = cv2.filter2D(fake_merged, -1, sharpen_kernel)
-        
-        return fake_merged.astype(np.uint8)
+        return fake_merged
