@@ -90,7 +90,7 @@ class INSwapper():
             img_mask = cv2.erode(img_mask,kernel,iterations = 1)
             kernel = np.ones((2,2),np.uint8)
             fake_diff = cv2.dilate(fake_diff,kernel,iterations = 1)
-            k = max(mask_size//20, 5)
+            k = max(mask_size//30, 5)
             #k = 3
             #k = 3
             kernel_size = (k, k)
